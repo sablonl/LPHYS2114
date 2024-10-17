@@ -10,6 +10,10 @@ Some resourses to go along with the course work for Non linear systems LPHYS2114
 
 
 
+Good series on introduction to non-linear dynamics: https://youtube.com/playlist?list=PLUeHTafWecAUqSh3Gy0NNr7H3OsXoC-aK&feature=shared
+
+
+
 Quick and dirty plotting of phase spaces: https://homepages.bluffton.edu/~nesterd/apps/slopefields.html 
 
 
