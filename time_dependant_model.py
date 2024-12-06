@@ -1,9 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 from matplotlib.animation import FuncAnimation
 from scipy.integrate import solve_ivp
-from matplotlib.collections import LineCollection
 
 from cubic_solver import cubic
 
@@ -35,44 +33,55 @@ except:
 """
     Specified Functions
 """
-def _f(t, x, p, noise):
-    return -x**3 + x + p + noise
+
+def _f(t, x, p, noise, a=1, b=0):
+    return -a * (x - b)**3 + a * (x - b) + p + noise
 
 
-def _f_prime(t, x, p):
-    return -3 * x**2 + 1
+def _f_prime(t, x, p, a=1, b=0):
+    return -3 * a * (x - b)**2 + a
 
 
-def _f_potential(t, x, p):
-    return 1/4 * x**4 - 1/2 * x**2 - p * x
+def _f_potential(t, x, p, a=1, b=0):
+    return 1/4 * a * (x - b)**4 - 1/2 * a * (x - b)**2 - p * x
 
 
-def _f_roots(t, x, p):
-    return cubic(-1, 0, 1, p)
+def _f_roots(t, x, p, a=1, b=0):
+    return cubic(-a, 0, a, p) + b
     
 
 
 class model:
 
-    def __init__(self, a=1, p_in_time=None, noise_func=None):
-        self.p = None
-        if p_in_time is None:
-            self.user_p_func = self.constant_p
-        else:
+    def __init__(self, a=1, p=0, b=0, p_in_time=None, noise_func=None, rate_function=None):
+        self.a = a
+        self.b = b
+        self.p = p
+
+        self.user_p_func = self.constant_p
+        self.user_noise_func = self.no_noise
+        self.user_rate_func = self.constant_rate
+
+        if p_in_time is not None:
             self.user_p_func = p_in_time
             
-        if noise_func is None:
-            self.noise_function = self.no_noise
-        else:
-            self.noise_func
-    
+        if noise_func is not None:
+            self.user_noise_func = noise_func
+
+        if rate_function is not None:
+            self.user_rate_func = rate_function
+
+
     @staticmethod
-    def constant_p(t, p=0):
-        return p
-    
-    @staticmethod
-    def no_noise(x, p):
-        return 0
+    def no_noise(t, x, p):
+        noise = np.zeros_like(x)
+        return noise
+
+    def constant_p(self, t):
+        return np.ones_like(t) * self.p
+
+    def constant_rate(self, t, x, p):
+        return np.ones_like(x) * self.b
 
     def _p_func(self, t):
         if isinstance(t, int):
@@ -85,43 +94,46 @@ class model:
             _t = t
         return self.user_p_func(_t)
 
-    def _p_val(self, t):
-        if self.p is None:
-            p = self._p_func(t)
-        else:
-            p = self.p
-        return p
+    def _noise_func(self, t, x, p):
+        return self.user_noise_func(t, x, p)
+
+    def _rate_func(self, t, x, p):
+        return self.user_rate_func(t, x, p)
     
     def f(self, t=0, x=0):
-        p = self._p_val(t)
-        dw = self.noise_function(x, p)
-        return _f(t, x, p, dw)
+        p = self._p_func(t)
+        dw = self._noise_func(t, x, p)
+        b = self._rate_func(t, x, p)
+        return _f(t, x, p, dw, self.a, b)
     
     def f_p(self, t=0, x=0, p_vals=None):
         # This is the derivative of only the no noise case
         if p_vals is None:
-            p = self._p_val(t)
+            p = self._p_func(t)
         else:
             p = p_vals
-        return _f_prime(t, x, p)
+        b = self._rate_func(t, x, p)
+        return _f_prime(t, x, p, self.a, b)
     
     def potential(self, t=0, x=0, p_vals=None):
         if p_vals is None:
-            p = self._p_val(t)
+            p = self._p_func(t)
         else:
             p = p_vals
-        return _f_potential(t, x, p)
+        b = self._rate_func(t, x, p)
+        return _f_potential(t, x, p, self.a, b)
     
     def find_roots(self, t=0, p_vals=None):
         if p_vals is None:
-            p = self._p_val(t)
+            p = self._p_func(t)
         else:
             p = p_vals
-        return _f_roots(t, 0, p)
+        b = self._rate_func(t, 0, p)
+        return _f_roots(t, 0, p, self.a, b)
         
     def root_stability(self, t=0, x=0, p_vals=None):
         if p_vals is None:
-            p = self._p_val(t)
+            p = self._p_func(t)
         else:
             p = p_vals
         deriv = self.f_p(t, x, p)
@@ -136,7 +148,7 @@ class model:
             raise UserWarning("Scipy int failed")
         return sol.t, sol.y
 
-    def plot_ball_potential(self, t=0, ics=[0], ax=None, plot_ball=True):
+    def plot_ball_potential(self, t=0., ics=[0], ax=None, plot_ball=True, pre_calculated_traj=None):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -146,7 +158,10 @@ class model:
         ax.plot(x, y, c=cramp(0), zorder=1)
         
         if plot_ball:
-            t_traj, traj = self.trajectory(ic=ics, end_t=t)
+            if pre_calculated_traj is None:
+                t_traj, traj = self.trajectory(ic=ics, end_t=t)
+            else:
+                t_traj, traj = pre_calculated_traj
             for tr in traj:
                 ax.scatter(tr[-1], self.potential(t=t, x=tr[-1]), color=cramp(3), s=200, zorder=2)
 
@@ -201,14 +216,14 @@ class model:
 
         return (np.array(line_1), list(set(thick1))), (np.array(line_2), list(set(thick2))), (np.array(line_3), list(set(thick3)))
 
-    def plot_bifurcation_plot_p(self, ax=None, p_vals=None, resolution=10000, plot_traj=True, t=100, ics=[0], traj_p_val=None, traj_res=100):
+    def plot_bifurcation_plot_p(self, ax=None, p_vals=None, resolution=10000, plot_traj=True, t=100., ics=[0], traj_p_val=None, traj_res=100, pre_calculated_traj=None):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
         res = list()
 
         if p_vals is None:
-            p_vals = np.linspace(-1., 1., resolution)
+            p_vals = np.linspace(- self.a, self.a, resolution)
 
         for p in p_vals:
             res.append(self.find_roots(p_vals=p))
@@ -221,33 +236,37 @@ class model:
 
         if plot_traj:
             t_ev = np.linspace(0, t, traj_res)
-            if traj_p_val is None:
-                t_traj, traj = self.trajectory(ic=ics, end_t=t, t_eval=t_ev)
+            if pre_calculated_traj is None:
+                if traj_p_val is None:
+                    t_traj, traj = self.trajectory(ic=ics, end_t=t, t_eval=t_ev)
+                else:
+                    traj_p_val = self._p_func(0)
+                    self.p = traj_p_val
+                    t_traj, traj = self.trajectory(ic=ics, start_t=0, end_t=t, t_eval=t_ev)
+                    self.p = None
             else:
-                traj_p_val = self._p_val(0)
-                self.p = traj_p_val
-                t_traj, traj = self.trajectory(ic=ics, start_t=0, end_t=t, t_eval=t_ev)
-                self.p = None
+                t_traj, traj = pre_calculated_traj
 
             for tr in traj:
                 p_v = self._p_func(t_traj)
+
                 ax.plot(p_v, tr, c=cramp(3), zorder=2)
                 ax.scatter(p_v[-1], tr[-1], color=cramp(3), s=200, zorder=2)
             if t == 0:
                 if traj_p_val is None:
                     for i in ics:
-                        ax.scatter(self._p_val(0), i, color=cramp(3), s=200, zorder=2)
+                        ax.scatter(self._p_func(0), i, color=cramp(3), s=200, zorder=2)
                 else:
                     for i in ics:
                         ax.scatter(traj_p_val, i, color=cramp(3), s=200, zorder=2)
 
         ax.set_xlabel(r'$p$')
         ax.set_ylabel(r'$x$')
-        ax.set_xlim(-1, 1)
+        ax.set_xlim(-self.a, self.a)
         ax.set_ylim(-1.5, 1.5)
         return ax
 
-    def plot_trajectory(self, t=None, ics=[0], ax=None, p_val=None, usercmap=None):
+    def plot_trajectory(self, t=None, ics=[0], ax=None, usercmap=None, pre_calculated_traj=None):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -257,10 +276,12 @@ class model:
         if usercmap is None:
             usercmap=cmap
 
-        t, traj = self.trajectory(ic=ics, start_t=t[0], end_t=t[-1], t_eval=t)
+        if pre_calculated_traj is None:
+            t, traj = self.trajectory(ic=ics, start_t=t[0], end_t=t[-1], t_eval=t)
+        else:
+            t, traj = pre_calculated_traj
         for i in range(len(traj)):
             ax.plot(t, traj[i], zorder=1, c=usercmap(i/len(traj)))
-
 
         ax.set_xlabel(r'$t$')
         ax.set_ylabel(r'$x$')
@@ -278,9 +299,14 @@ class model:
         ax2 = fig.add_subplot(grid[0, 1])  # Top-right
         ax3 = fig.add_subplot(grid[1, :])  # Bottom row (spans both columns)
 
-        self.plot_ball_potential(t=t, ics=ics, ax=ax1)
-        self.plot_bifurcation_plot_p(t=t, ics=ics, ax=ax2)
-        self.plot_trajectory(ics=ics, ax=ax3, t=t_traj)
+        if t > t_traj[-1]:
+            t_traj = np.linspace(t_traj[0], t, 100)
+
+        pre_c_traj = self.trajectory(ics, start_t=t_traj[0], end_t=t_traj[-1], t_eval=t_traj)
+
+        self.plot_ball_potential(t=t, ax=ax1, pre_calculated_traj=pre_c_traj)
+        self.plot_bifurcation_plot_p(t=t, ax=ax2, pre_calculated_traj=pre_c_traj)
+        self.plot_trajectory(ax=ax3, pre_calculated_traj=pre_c_traj)
 
         ax3.vlines(t, -2, 2, color='black')
         return fig, ax
@@ -289,13 +315,18 @@ class model:
         fig, ax = plt.subplots(figsize=(20, 18))
         grid = fig.add_gridspec(2, 2, height_ratios=[1, 1])
 
+        ax.remove()
+
         ax1 = fig.add_subplot(grid[0, 0])  # Top-left
         ax2 = fig.add_subplot(grid[0, 1])  # Top-right
         ax3 = fig.add_subplot(grid[1, :])  # Bottom row (spans both columns)
 
+        pre_c_traj = self.trajectory(ics, start_t=t[0], end_t=t[-1], t_eval=t)
+        t_c, tr_c = pre_c_traj
+
         self.plot_ball_potential(t=0, ics=ics, ax=ax1)
         self.plot_bifurcation_plot_p(t=0, ics=ics, ax=ax2)
-        self.plot_trajectory(ics=ics, ax=ax3, t=t)
+        self.plot_trajectory(ax=ax3, pre_calculated_traj=pre_c_traj)
 
         ax3.vlines(0, -2, 2, color='black')
 
@@ -304,12 +335,15 @@ class model:
             ax2.clear()
             ax3.clear()
 
-            self.plot_ball_potential(t=t[frame], ics=ics, ax=ax1)
-            self.plot_bifurcation_plot_p(t=t[frame], ics=ics, ax=ax2)
-            self.plot_trajectory(ics=ics, ax=ax3, t=t)
+            t_f = t_c[:frame+1]
+            tr_f = tr_c[:, :frame+1]
+
+            self.plot_ball_potential(t=frame+1, ax=ax1, pre_calculated_traj=(t_f, tr_f))
+            self.plot_bifurcation_plot_p(t=frame+1, ax=ax2, pre_calculated_traj=(t_f, tr_f))
+            self.plot_trajectory(ax=ax3, pre_calculated_traj=pre_c_traj)
 
             ax3.vlines(t[frame], -2, 2, color='black')
 
-        ani = FuncAnimation(fig, update, frames=(len(t)), interval=100)
+        ani = FuncAnimation(fig, update, frames=(len(t)-1), interval=100)
 
         return ani
