@@ -54,12 +54,12 @@ def _f_roots(t, x, p):
 
 class model:
 
-    def __init__(self, a=1, p_func=None, noise_func=None):
+    def __init__(self, a=1, p_in_time=None, noise_func=None):
         self.p = None
-        if p_func is None:
-            self.p_func = self.constant_p
+        if p_in_time is None:
+            self.user_p_func = self.constant_p
         else:
-            self.p_func = p_func
+            self.user_p_func = p_in_time
             
         if noise_func is None:
             self.noise_function = self.no_noise
@@ -74,9 +74,20 @@ class model:
     def no_noise(x, p):
         return 0
 
+    def _p_func(self, t):
+        if isinstance(t, int):
+            t = float(t)
+        if isinstance(t, float):
+            _t = np.array([t])
+        elif isinstance(t, list):
+            _t = np.array(t)
+        else:
+            _t = t
+        return self.user_p_func(_t)
+
     def _p_val(self, t):
         if self.p is None:
-            p = self.p_func(t)
+            p = self._p_func(t)
         else:
             p = self.p
         return p
@@ -129,19 +140,15 @@ class model:
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
-        if plot_ball:
-            t, traj = self.trajectory(ic=ics, end_t=t)
-
         x = np.linspace(-2, 2, 1000)
 
-        for ti in t:
-            y = self.potential(t=ti, x=x)
-            ax.plot(x, y, c=cramp(0), zorder=1)
-
+        y = self.potential(t=t, x=x)
+        ax.plot(x, y, c=cramp(0), zorder=1)
+        
         if plot_ball:
+            t_traj, traj = self.trajectory(ic=ics, end_t=t)
             for tr in traj:
-                for ti in t:
-                    ax.scatter(tr[-1], self.potential(t=ti, x=tr[-1]), color=cramp(3), s=200, zorder=2)
+                ax.scatter(tr[-1], self.potential(t=t, x=tr[-1]), color=cramp(3), s=200, zorder=2)
 
         ax.set_xlabel(r'$x$')
         ax.set_ylabel(r'$V(x)$')
@@ -160,68 +167,79 @@ class model:
         thick2 = list()
         thick3 = list()
 
-        unstab = 2
-        stab = 5
+        unstab = ':'
+        stab = '-'
 
-        for (p1, p2), (x1, x2) in zip(zip(p_vals[:-1:spacing], p_vals[1::spacing]), zip(x_vals[:-1:spacing], x_vals[1::spacing])):
-            if not(np.isnan(x1[0])) and not(np.isnan(x2[0])) and (np.abs(x1[0] - x2[0]) < 0.1):
+        for (p1, p2), (x1, x2) in zip(zip(p_vals[:-1:spacing], p_vals[1::spacing]),
+                                      zip(x_vals[:-1:spacing], x_vals[1::spacing])):
+            if not (np.isnan(x1[0])) and not (np.isnan(x2[0])) and (np.abs(x1[0] - x2[0]) < 0.1):
                 if self.root_stability(x=x1[0], p_vals=p1):
                     thick1.append(stab)
                 else:
                     thick1.append(unstab)
-                line_1.append([(p1, x1[0]), (p2, x2[0])])
+                line_1.append([p1, x1[0]])
+            if (np.abs(x1[0] - x2[0]) > 0.1):
+                line_1.append([p1, np.nan])
 
-            if not(np.isnan(x1[1])) and not(np.isnan(x2[1])) and (np.abs(x1[0] - x2[0]) < 0.1):
+            if not (np.isnan(x1[1])) and not (np.isnan(x2[1])) and (np.abs(x1[1] - x2[1]) < 0.1):
                 if self.root_stability(x=x1[1], p_vals=p1):
                     thick2.append(stab)
                 else:
                     thick2.append(unstab)
-                line_2.append([(p1, x1[1]), (p2, x2[1])])
+                line_2.append([p1, x1[1]])
+            if (np.abs(x1[1] - x2[1]) > 0.1):
+                line_2.append([p1, np.nan])
 
-            if not(np.isnan(x1[2])) and not(np.isnan(x2[2])) and (np.abs(x1[0] - x2[0]) < 0.1):
+            if not (np.isnan(x1[2])) and not (np.isnan(x2[2])) and (np.abs(x1[2] - x2[2]) < 0.1):
                 if self.root_stability(x=x1[2], p_vals=p1):
                     thick3.append(stab)
                 else:
                     thick3.append(unstab)
-                line_3.append([(p1, x1[2]), (p2, x2[2])])
-        
-        lc1 = LineCollection(line_1, color=cramp(0), linewidth=thick1)
-        lc2 = LineCollection(line_2, color=cramp(0), linewidth=thick2)
-        lc3 = LineCollection(line_3, color=cramp(0), linewidth=thick3)
-        return lc1, lc2, lc3
+                line_3.append([p1, x1[2]])
+            if (np.abs(x1[2] - x2[2]) > 0.1):
+                line_3.append([p1, np.nan])
 
-    def plot_bifurcation_plot_p(self, ax=None, p_vals=None, resolution=10000, plot_traj=True, t=100, ics=[0], traj_p_val=None):
+        return (np.array(line_1), list(set(thick1))), (np.array(line_2), list(set(thick2))), (np.array(line_3), list(set(thick3)))
+
+    def plot_bifurcation_plot_p(self, ax=None, p_vals=None, resolution=10000, plot_traj=True, t=100, ics=[0], traj_p_val=None, traj_res=100):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
         res = list()
 
         if p_vals is None:
-            mn, mx = self.p_func(0), self.p_func(10000)
-            if mn == mx:
-                p_vals = np.linspace(-1., 1., resolution)
-            else:
-                p_vals = np.linspace(mn, mx, resolution)
+            p_vals = np.linspace(-1., 1., resolution)
 
         for p in p_vals:
-            self.p = p
-            res.append(self.find_roots())
-        self.p = None
+            res.append(self.find_roots(p_vals=p))
+
 
         lc1, lc2, lc3 = self.collect_line_segments(p_vals, res)
-        ax.add_collection(lc1)
-        ax.add_collection(lc2)
-        ax.add_collection(lc3)
+        ax.plot(lc1[0][:, 0], lc1[0][:, 1], color=cramp(0), ls=lc1[1][0], lw=2.5)
+        ax.plot(lc2[0][:, 0], lc2[0][:, 1], color=cramp(0), ls=lc2[1][0], lw=2.5)
+        ax.plot(lc3[0][:, 0], lc3[0][:, 1], color=cramp(0), ls=lc3[1][0], lw=2.5)
 
         if plot_traj:
+            t_ev = np.linspace(0, t, traj_res)
             if traj_p_val is None:
+                t_traj, traj = self.trajectory(ic=ics, end_t=t, t_eval=t_ev)
+            else:
                 traj_p_val = self._p_val(0)
-            self.p = traj_p_val
-            t, traj = self.trajectory(ic=ics, start_t=0, end_t=t)
+                self.p = traj_p_val
+                t_traj, traj = self.trajectory(ic=ics, start_t=0, end_t=t, t_eval=t_ev)
+                self.p = None
+
             for tr in traj:
-                ax.plot([traj_p_val]*len(tr), tr, c=cramp(3), zorder=2)
-                ax.scatter(traj_p_val, tr[-1], color=cramp(3), s=200, zorder=2)
-            self.p = None
+                p_v = self._p_func(t_traj)
+                ax.plot(p_v, tr, c=cramp(3), zorder=2)
+                ax.scatter(p_v[-1], tr[-1], color=cramp(3), s=200, zorder=2)
+            if t == 0:
+                if traj_p_val is None:
+                    for i in ics:
+                        ax.scatter(self._p_val(0), i, color=cramp(3), s=200, zorder=2)
+                else:
+                    for i in ics:
+                        ax.scatter(traj_p_val, i, color=cramp(3), s=200, zorder=2)
 
         ax.set_xlabel(r'$p$')
         ax.set_ylabel(r'$x$')
@@ -253,6 +271,8 @@ class model:
         fig, ax = plt.subplots(figsize=(20, 18))
         grid = fig.add_gridspec(2, 2, height_ratios=[1, 1])
 
+        ax.remove()
+
         # Add the subplots
         ax1 = fig.add_subplot(grid[0, 0])  # Top-left
         ax2 = fig.add_subplot(grid[0, 1])  # Top-right
@@ -280,9 +300,9 @@ class model:
         ax3.vlines(0, -2, 2, color='black')
 
         def update(frame):
-            ax1.cla()
-            ax2.cla()
-            ax3.cla()
+            ax1.clear()
+            ax2.clear()
+            ax3.clear()
 
             self.plot_ball_potential(t=t[frame], ics=ics, ax=ax1)
             self.plot_bifurcation_plot_p(t=t[frame], ics=ics, ax=ax2)
