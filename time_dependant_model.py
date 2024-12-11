@@ -98,7 +98,15 @@ class model:
         return self.user_noise_func(t, x, p)
 
     def _rate_func(self, t, x, p):
-        return self.user_rate_func(t, x, p)
+        if isinstance(t, int):
+            t = float(t)
+        if isinstance(t, float):
+            _t = np.array([t])
+        elif isinstance(t, list):
+            _t = np.array(t)
+        else:
+            _t = t
+        return self.user_rate_func(_t, x, p)
     
     def f(self, t=0, x=0):
         p = self._p_func(t)
@@ -123,7 +131,7 @@ class model:
         b = self._rate_func(t, x, p)
         return _f_potential(t, x, p, self.a, b)
     
-    def find_roots(self, t=0, p_vals=None):
+    def find_roots(self, t=0., p_vals=None):
         if p_vals is None:
             p = self._p_func(t)
         else:
@@ -148,11 +156,20 @@ class model:
             raise UserWarning("Scipy int failed")
         return sol.t, sol.y
 
-    def plot_ball_potential(self, t=0., ics=[0], ax=None, plot_ball=True, pre_calculated_traj=None):
+    def plot_ball_potential(
+            self,
+            t=0.,
+            ics=[0],
+            ax=None,
+            plot_ball=True,
+            pre_calculated_traj=None,
+            x_lims=(-2, 2),
+            y_lims=None
+    ):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
-        x = np.linspace(-2, 2, 1000)
+        x = np.linspace(x_lims[0], x_lims[1], 1000)
 
         y = self.potential(t=t, x=x)
         ax.plot(x, y, c=cramp(0), zorder=1)
@@ -163,10 +180,15 @@ class model:
             else:
                 t_traj, traj = pre_calculated_traj
             for tr in traj:
-                ax.scatter(tr[-1], self.potential(t=t, x=tr[-1]), color=cramp(3), s=200, zorder=2)
+                ix = np.argmin(np.abs(t - t_traj))
+                ax.scatter(tr[ix], self.potential(t=t, x=tr[ix]), color=cramp(3), s=200, zorder=2)
 
         ax.set_xlabel(r'$x$')
         ax.set_ylabel(r'$V(x)$')
+
+        ax.set_xlim(x_lims[0], x_lims[1])
+        if y_lims is not None:
+            ax.set_ylim(y_lims[0], y_lims[1])
 
         return ax
 
@@ -214,9 +236,25 @@ class model:
             if (np.abs(x1[2] - x2[2]) > 0.1):
                 line_3.append([p1, np.nan])
 
-        return (np.array(line_1), list(set(thick1))), (np.array(line_2), list(set(thick2))), (np.array(line_3), list(set(thick3)))
+        #\\TODO: Fix this bodge - Currently hard coded stability curves
+        thick1, thick2, thick3 = stab, unstab, stab
 
-    def plot_bifurcation_plot_p(self, ax=None, p_vals=None, resolution=10000, plot_traj=True, t=100., ics=[0], traj_p_val=None, traj_res=100, pre_calculated_traj=None):
+        return (np.array(line_1), thick1), (np.array(line_2), thick2), (np.array(line_3), thick3)
+
+    def plot_bifurcation_plot_p(
+            self,
+            ax=None,
+            p_vals=None,
+            resolution=10000,
+            plot_traj=True,
+            t=100.,
+            ics=[0],
+            traj_p_val=None,
+            traj_res=100,
+            pre_calculated_traj=None,
+            p_lims = None,
+            x_lims = None
+    ):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -226,13 +264,13 @@ class model:
             p_vals = np.linspace(- self.a, self.a, resolution)
 
         for p in p_vals:
-            res.append(self.find_roots(p_vals=p))
+            res.append(self.find_roots(t=t, p_vals=p))
 
 
         lc1, lc2, lc3 = self.collect_line_segments(p_vals, res)
-        ax.plot(lc1[0][:, 0], lc1[0][:, 1], color=cramp(0), ls=lc1[1][0], lw=2.5)
-        ax.plot(lc2[0][:, 0], lc2[0][:, 1], color=cramp(0), ls=lc2[1][0], lw=2.5)
-        ax.plot(lc3[0][:, 0], lc3[0][:, 1], color=cramp(0), ls=lc3[1][0], lw=2.5)
+        ax.plot(lc1[0][:, 0], lc1[0][:, 1], color=cramp(0), ls=lc1[1], lw=2.5)
+        ax.plot(lc2[0][:, 0], lc2[0][:, 1], color=cramp(0), ls=lc2[1], lw=2.5)
+        ax.plot(lc3[0][:, 0], lc3[0][:, 1], color=cramp(0), ls=lc3[1], lw=2.5)
 
         if plot_traj:
             t_ev = np.linspace(0, t, traj_res)
@@ -250,9 +288,10 @@ class model:
             for tr in traj:
                 p_v = self._p_func(t_traj)
 
-                ax.plot(p_v, tr, c=cramp(3), zorder=2)
-                ax.scatter(p_v[-1], tr[-1], color=cramp(3), s=200, zorder=2)
-            if t == 0:
+                ix = np.argmin(np.abs(t - t_traj))
+                ax.plot(p_v[:ix], tr[:ix], c=cramp(3), zorder=2)
+                ax.scatter(p_v[ix], tr[ix], color=cramp(3), s=200, zorder=2)
+            if t == 0 and pre_calculated_traj is None:
                 if traj_p_val is None:
                     for i in ics:
                         ax.scatter(self._p_func(0), i, color=cramp(3), s=200, zorder=2)
@@ -262,11 +301,24 @@ class model:
 
         ax.set_xlabel(r'$p$')
         ax.set_ylabel(r'$x$')
-        ax.set_xlim(-self.a, self.a)
-        ax.set_ylim(-1.5, 1.5)
+        if p_lims is not None:
+            ax.set_xlim(p_lims[0], p_lims[1])
+        else:
+            ax.set_xlim(-self.a, self.a)
+        if x_lims is not None:
+            ax.set_ylim(x_lims[0], x_lims[1])
+        else:
+            ax.set_ylim(np.nanmin(lc1[0][:, 1])-0.1, np.nanmax(lc3[0][:, 1])+0.1)
         return ax
 
-    def plot_trajectory(self, t=None, ics=[0], ax=None, usercmap=None, pre_calculated_traj=None):
+    def plot_trajectory(
+            self,
+            t=None,
+            ics=[0],
+            ax=None,
+            usercmap=None,
+            pre_calculated_traj=None
+    ):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -288,7 +340,14 @@ class model:
 
         return ax
 
-    def plot_composite(self, t=0., ics=[0.], t_traj=np.linspace(0, 3, 100)):
+    def plot_composite(
+            self,
+            t=0.,
+            ics=[0.],
+            t_traj=np.linspace(0, 3, 100),
+            ball_plot_lims=((-2, 2), None),
+            bif_plot_lims=(None, None)
+    ):
         fig, ax = plt.subplots(figsize=(20, 18))
         grid = fig.add_gridspec(2, 2, height_ratios=[1, 1])
 
@@ -304,14 +363,20 @@ class model:
 
         pre_c_traj = self.trajectory(ics, start_t=t_traj[0], end_t=t_traj[-1], t_eval=t_traj)
 
-        self.plot_ball_potential(t=t, ax=ax1, pre_calculated_traj=pre_c_traj)
-        self.plot_bifurcation_plot_p(t=t, ax=ax2, pre_calculated_traj=pre_c_traj)
+        self.plot_ball_potential(t=t, ax=ax1, pre_calculated_traj=pre_c_traj, x_lims=ball_plot_lims[0], y_lims=ball_plot_lims[1])
+        self.plot_bifurcation_plot_p(t=t, ax=ax2, pre_calculated_traj=pre_c_traj, p_lims=bif_plot_lims[0], x_lims=bif_plot_lims[1])
         self.plot_trajectory(ax=ax3, pre_calculated_traj=pre_c_traj)
 
         ax3.vlines(t, -2, 2, color='black')
         return fig, ax
 
-    def animate_composite(self, t=np.linspace(0, 3, 100), ics=[0.]):
+    def animate_composite(
+            self,
+            t=np.linspace(0, 3, 100),
+            ics=[0.],
+            ball_plot_lims=((-2, 2), None),
+            bif_plot_lims=(None, None)
+    ):
         fig, ax = plt.subplots(figsize=(20, 18))
         grid = fig.add_gridspec(2, 2, height_ratios=[1, 1])
 
@@ -324,8 +389,8 @@ class model:
         pre_c_traj = self.trajectory(ics, start_t=t[0], end_t=t[-1], t_eval=t)
         t_c, tr_c = pre_c_traj
 
-        self.plot_ball_potential(t=0, ics=ics, ax=ax1)
-        self.plot_bifurcation_plot_p(t=0, ics=ics, ax=ax2)
+        self.plot_ball_potential(t=0, ics=ics, ax=ax1, x_lims=ball_plot_lims[0], y_lims=ball_plot_lims[1])
+        self.plot_bifurcation_plot_p(t=0, ics=ics, ax=ax2, p_lims=bif_plot_lims[0], x_lims=bif_plot_lims[1])
         self.plot_trajectory(ax=ax3, pre_calculated_traj=pre_c_traj)
 
         ax3.vlines(0, -2, 2, color='black')
@@ -337,9 +402,10 @@ class model:
 
             t_f = t_c[:frame+1]
             tr_f = tr_c[:, :frame+1]
+            t_frame = t[frame+1]
 
-            self.plot_ball_potential(t=frame+1, ax=ax1, pre_calculated_traj=(t_f, tr_f))
-            self.plot_bifurcation_plot_p(t=frame+1, ax=ax2, pre_calculated_traj=(t_f, tr_f))
+            self.plot_ball_potential(t=t_frame, ax=ax1, pre_calculated_traj=(t_f, tr_f), x_lims=ball_plot_lims[0], y_lims=ball_plot_lims[1])
+            self.plot_bifurcation_plot_p(t=t_frame, ax=ax2, pre_calculated_traj=(t_f, tr_f), p_lims=bif_plot_lims[0], x_lims=bif_plot_lims[1])
             self.plot_trajectory(ax=ax3, pre_calculated_traj=pre_c_traj)
 
             ax3.vlines(t[frame], -2, 2, color='black')
